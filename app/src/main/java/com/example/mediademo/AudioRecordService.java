@@ -333,7 +333,7 @@ public class AudioRecordService extends Service {
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                // 3. 录音异常结束，通知 UI
+                // 录音异常结束，通知 UI
                 stopRecording();
                 Intent updateIntent = new Intent("com.example.mediademo.UPDATE_UI");
                 updateIntent.setPackage(getPackageName());

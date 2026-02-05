@@ -50,9 +50,8 @@ import java.util.List;
  *   也可以改成原先的 ACTION_OPEN_DOCUMENT 选择单个文件
  * 使用 ViewModel 和 LiveData 来管理和更新界面的播放/录音/暂停按钮
  * 使用 Service 管理录音与播放，避免activity重建（旋转屏幕，点击返回键）导致录音/播放中断
- * 使用 Broadcast Receiver 监听耳机拔出事件，停止录音和播放
+ * 使用 Broadcast Receiver 监听耳机拔出事件/来电事件，停止录音和播放
  * 使用 AudioManager Audio Focus 管理音频焦点，处理多个应用/来电对音频的抢占
- * TODO : adb 模拟来电中断，处理音频和录音暂停，音频焦点控制
  */
 
 
