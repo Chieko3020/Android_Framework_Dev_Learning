@@ -89,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
     private final BroadcastReceiver uiUpdateReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context context, Intent intent) {
+            Log.d(TAG,"UI BROADCASTREVICER IS CALLED");
             if ("com.example.mediademo.UPDATE_UI".equals(intent.getAction())) {
                 Log.d(TAG, "收到 UI 更新广播，同步状态");
                 if (audioService != null) {

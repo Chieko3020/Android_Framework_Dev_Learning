@@ -73,8 +73,10 @@ public class AudioRecordService extends Service {
 
     // 音频焦点监听器
     private final AudioManager.OnAudioFocusChangeListener focusChangeListener = focusChange -> {
+        Log.d(TAG, "FOCUSCHANGELISTENER IS CALLED: " + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
+                Log.d(TAG, "AUDIOFOCUS_GAIN");
                 // 重新获得焦点
                 if (resumeOnFocusGain) {
                     synchronized (focusLock) {
@@ -82,33 +84,46 @@ public class AudioRecordService extends Service {
                         if (mediaPlayer != null && !mediaPlayer.isPlaying()) {
                             mediaPlayer.setVolume(1.0f, 1.0f);
                             mediaPlayer.start();
+                            notifyUiUpdate();
                         }
                     }
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
-                // 永久失去焦点（如用户启动了另一个音乐播放器）
+                Log.d(TAG, "AUDIOFOCUS_LOSS");
+                // 永久失去焦点
                 stopPlayback();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 // 暂时失去焦点（如来电）
+                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT");
                 synchronized (focusLock) {
                     if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                         resumeOnFocusGain = true;
                         mediaPlayer.pause();
-                        Intent updateIntent = new Intent("com.example.mediademo_UPDATE_UI");
-                        sendBroadcast(updateIntent);
+                    }
+                    if (isRecording) {
+                        stopRecording();
                     }
                 }
+                notifyUiUpdate();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK");
                 // 暂时失去焦点，但可以降低音量播放（如导航播报）
                 if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                     mediaPlayer.setVolume(0.2f, 0.2f);
+                    notifyUiUpdate();
                 }
                 break;
         }
     };
+
+    private void notifyUiUpdate() {
+        Intent updateIntent = new Intent("com.example.mediademo.UPDATE_UI");
+        updateIntent.setPackage(getPackageName());
+        sendBroadcast(updateIntent);
+    }
 
     // Binder 给 Activity 提供调用接口
     // 这样 Activity能够通过获得Service对象来getter录音状态
@@ -175,6 +190,18 @@ public class AudioRecordService extends Service {
     public void startRecording(int sampleRate, int channelConfig, int audioFormat, int bufferSize) {
         if (isRecording) return;
 
+        int res;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            res = audioManager.requestAudioFocus(focusRequest);
+        } else {
+            res = audioManager.requestAudioFocus(focusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE);
+        }
+
+        if (res != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            Log.w(TAG, "无法获取音频焦点，录音取消");
+            return;
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED){
             stopSelf();
             return;
@@ -199,12 +226,21 @@ public class AudioRecordService extends Service {
                 byte[] data = new byte[bufferSize];
                 while (isRecording) {
                     int read = audioRecord.read(data, 0, bufferSize);
+                    if (read < 0) {
+                        Log.e(TAG, "读取音频数据失败，错误码: " + read);
+                        isRecording = false;
+                        break;
+                    }
                     if (read > 0) os.write(data, 0, read);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                // 确保在线程结束时状态正确，虽然通常是由 stopRecording 触发
+                // 3. 录音异常结束，通知 UI
+                stopRecording();
+                Intent updateIntent = new Intent("com.example.mediademo.UPDATE_UI");
+                updateIntent.setPackage(getPackageName());
+                sendBroadcast(updateIntent);
             }
         }).start();
     }
@@ -212,12 +248,20 @@ public class AudioRecordService extends Service {
     public void stopRecording() {
         isRecording = false;
         if (audioRecord != null) {
-            audioRecord.stop();
+            try {
+                if (audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                    audioRecord.stop();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error stopping audioRecord", e);
+            }
             audioRecord.release();
             audioRecord = null;
         }
         stopForeground(true);
-        stopSelf();
+        if (!isPlaying()) {
+            stopSelf();
+        }
     }
 
     public boolean isRecording() {
@@ -299,6 +343,7 @@ public class AudioRecordService extends Service {
             abandonFocus();
             stopForeground(true);
             Intent updateIntent = new Intent("com.example.mediademo.UPDATE_UI");
+            updateIntent.setPackage(getPackageName());
             sendBroadcast(updateIntent);
         }
     }
