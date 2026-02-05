@@ -34,6 +34,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="停止录制并保存 WAV"
-        android:enabled="false" />
+        android:enabled="false"
+        android:layout_marginBottom="20dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="实时音量监测"
+        android:textSize="14sp"
+        android:layout_marginBottom="8dp"/>
+
+    <ProgressBar
+        android:id="@+id/volumeBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="20dp"
+        android:max="100"
+        android:progress="0"
+        android:progressDrawable="@android:drawable/progress_horizontal" />
 
 </LinearLayout>

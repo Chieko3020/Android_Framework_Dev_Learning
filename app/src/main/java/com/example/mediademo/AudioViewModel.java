@@ -9,6 +9,7 @@ public class AudioViewModel extends ViewModel {
     public MutableLiveData<String> statusText = new MutableLiveData<>("状态：等待录音");
 
     public MutableLiveData<Boolean> isPlaying = new MutableLiveData<>(false);
+    public MutableLiveData<Integer> volumeLevel = new MutableLiveData<>(0);
 
     public void updateRecordingState (boolean recording) {
         isRecording.setValue(recording);

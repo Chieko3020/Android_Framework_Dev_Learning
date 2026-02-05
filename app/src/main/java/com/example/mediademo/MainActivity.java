@@ -39,6 +39,11 @@ import java.util.ArrayList;
 import java.util.List;
 /*
  * app层调用练手demo
+ *
+ * 如何统一处理来自不同来源的控制指令（通知栏、蓝牙设备、语音命令等）？
+ * 如何确保播放状态在各种场景下同步更新？
+ * 如何遵循 Android 的最佳实践构建健壮的媒体应用？
+ *
  * 使用 AudioRecord API 实现录音功能，子线程录音保存为pcm，主线程再手动封装wave header
  * 录音参数是固定的 44100Hz采样率 单声道 16bit 位深
  * 使用 SAF 调用 DocumentsUI 选择目录授予应用访问权限 播放该目录（但没有递归子目录）的音频
@@ -75,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView statusText;
     private Button btnPlay, btnRecord, btnStopRecord;
+    private android.widget.ProgressBar volumeBar;
     
     private MediaPlayer mediaPlayer;
     private AudioRecord audioRecord;
@@ -96,9 +102,13 @@ public class MainActivity extends AppCompatActivity {
                     viewModel.updateRecordingState(audioService.isRecording());
                     viewModel.isPlaying.setValue(audioService.isPlaying());
                     if (!audioService.isRecording() && !audioService.isPlaying()) {
-                        viewModel.statusText.setValue("状态：已停止（耳机拔出）");
+                        viewModel.statusText.setValue("状态：已停止");
                     }
                 }
+            }
+            else if ("com.example.mediademo.VOLUME_UPDATE".equals(intent.getAction())) {
+                int level = intent.getIntExtra("level", 0);
+                viewModel.volumeLevel.postValue(level); // 注意：Service 在子线程计算，需用 postValue
             }
         }
     };
@@ -188,6 +198,7 @@ public class MainActivity extends AppCompatActivity {
         btnPlay = findViewById(R.id.btnPlay);
         btnRecord = findViewById(R.id.btnRecord);
         btnStopRecord = findViewById(R.id.btnStopRecord);
+        volumeBar = findViewById(R.id.volumeBar);
 
         // UI控制逻辑写在ViewModel LiveData 闭包、
         // LiveData 节省了大量的防御性代码（判空、生命周期检查、状态恢复） 生命周期自动管理 观察者也会自动销毁
@@ -200,6 +211,12 @@ public class MainActivity extends AppCompatActivity {
         viewModel.statusText.observe(this, text -> {
             statusText.setText(text);
         });
+        viewModel.volumeLevel.observe(this, level -> {
+            if (volumeBar != null) {
+                volumeBar.setProgress(level);
+            }
+        });
+
 
         Intent intent = new Intent(this, AudioRecordService.class);
         bindService(intent, connection, BIND_AUTO_CREATE);
@@ -212,7 +229,10 @@ public class MainActivity extends AppCompatActivity {
 
         checkPermissions();
         // 注册 UI 更新广播
-        IntentFilter filter = new IntentFilter("com.example.mediademo.UPDATE_UI");
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("com.example.mediademo.UPDATE_UI");
+        filter.addAction("com.example.mediademo.VOLUME_UPDATE");
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(uiUpdateReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED);
         } else {

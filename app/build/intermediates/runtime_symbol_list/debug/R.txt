@@ -3489,6 +3489,7 @@ int id view_tree_saved_state_registry_owner 0x7f0801e4
 int id view_tree_view_model_store_owner 0x7f0801e5
 int id visible 0x7f0801e6
 int id visible_removing_fragment_view_tag 0x7f0801e7
+int id volumeBar 0x7f0801f1
 int id west 0x7f0801e8
 int id withText 0x7f0801e9
 int id with_icon 0x7f0801ea

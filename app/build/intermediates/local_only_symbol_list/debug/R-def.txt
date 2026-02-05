@@ -8,6 +8,7 @@ id btnPlay
 id btnRecord
 id btnStopRecord
 id statusText
+id volumeBar
 layout activity_main
 mipmap ic_launcher
 mipmap ic_launcher_foreground

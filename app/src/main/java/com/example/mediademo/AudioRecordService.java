@@ -11,6 +11,9 @@ import android.content.IntentFilter;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.MediaMetadata;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
@@ -48,6 +51,8 @@ public class AudioRecordService extends Service {
 
     private List<Uri> playlist = new ArrayList<>();
     private int currentIndex = -1;
+    private MediaSession mediaSession;
+    private long lastVolumeUpdateTime = 0;
 
     // 广播接收器：监听耳机拔出
     // adb shell am broadcast -a com.example.mediademo.TEST_NOISY -p com.example.mediademo --receiver-include-background
@@ -147,6 +152,7 @@ public class AudioRecordService extends Service {
         pcmPath = getExternalFilesDir(null).getAbsolutePath() + "/record.pcm";
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         initAudioFocusRequest();
+        initMediaSession();
 
         // 注册广播接收器
         IntentFilter filter = new IntentFilter();
@@ -172,6 +178,66 @@ public class AudioRecordService extends Service {
 //            sendBroadcast(intent);
 //        }, 5000); // 启动 5 秒后自动发广播
     }
+    // 初始化MediaSession 用于处理耳机播放/暂停/前进按钮的keyEvent
+    private void initMediaSession() {
+        mediaSession = new MediaSession(this, "MediaDemoSession");
+        // MediaSession.Callback 默认在主线程调用
+        mediaSession.setCallback(new MediaSession.Callback() {
+            @Override
+            public void onPlay() {
+                Log.d(TAG,"MediaSession onPlay is called");
+                if (currentIndex != -1 && !playlist.isEmpty()) {
+                    playAudio(playlist.get(currentIndex));
+                    Log.d(TAG,"MediaSession onPlay KeyEvent");
+                    notifyUiUpdate();
+                }
+            }
+
+            @Override
+            public void onPause() {
+                Log.d(TAG,"MediaSession onPause is called");
+                stopPlayback();
+                Log.d(TAG,"MediaSession onPause KeyEvent");
+            }
+
+            @Override
+            public  void onStop() {
+                Log.d(TAG,"MediaSession onStop is called");
+                stopPlayback();
+                Log.d(TAG, "MediaSession onStop KeyEvent");
+            }
+
+            @Override
+            public void onSkipToNext() {
+                Log.d(TAG,"MediaSession onSkipToNext is called");
+                playnext();
+                Log.d(TAG,"MediaSession onSkipToNext KeyEvent");
+            }
+
+            // onRecord
+
+
+        });
+        mediaSession.setActive(true);
+        updatePlaybackState(PlaybackState.STATE_STOPPED);
+    }
+
+    private void updatePlaybackState(int state) {
+        if (mediaSession == null) return;
+        PlaybackState.Builder stateBuilder = new PlaybackState.Builder()
+                .setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | 
+                           PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_STOP);
+        stateBuilder.setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f);
+        mediaSession.setPlaybackState(stateBuilder.build());
+    }
+
+    private void updateMetadata(Uri uri) {
+        if (mediaSession == null) return;
+        MediaMetadata.Builder metadataBuilder = new MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, "正在播放: " + uri.getLastPathSegment())
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "MediaDemo");
+        mediaSession.setMetadata(metadataBuilder.build());
+    }
 
     private void initAudioFocusRequest() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -185,6 +251,13 @@ public class AudioRecordService extends Service {
                     .setOnAudioFocusChangeListener(focusChangeListener)
                     .build();
         }
+    }
+
+    private void notifyVolumeUpdate(int level) {
+        Intent intent = new Intent("com.example.mediademo.VOLUME_UPDATE");
+        intent.putExtra("level", level);
+        intent.setPackage(getPackageName());
+        sendBroadcast(intent);
     }
 
     public void startRecording(int sampleRate, int channelConfig, int audioFormat, int bufferSize) {
@@ -231,7 +304,31 @@ public class AudioRecordService extends Service {
                         isRecording = false;
                         break;
                     }
-                    if (read > 0) os.write(data, 0, read);
+                    if (read > 0) {
+                        os.write(data, 0, read);
+                        
+                        // 计算 RMS 音量
+                        long sum = 0;
+                        for (int i = 0; i < read - 1; i += 2) {
+                            short sample = (short) ((data[i] & 0xff) | (data[i + 1] << 8));
+                            sum += (long) sample * sample;
+                        }
+                        
+                        double rms = Math.sqrt(sum / (read / 2.0));
+                        // 将 RMS 映射到 0-100 的分贝或线性等级
+                        // 这里的 90 是一个经验参考值，代表最大振幅的对数映射
+                        int level = (int) (20 * Math.log10(rms / 32768.0) + 90);
+                        level = Math.max(0, Math.min(100, level));
+
+                        // 频率限制：每 50ms 更新一次，避免广播过载
+                        long currentTime = System.currentTimeMillis();
+                        if (currentTime - lastVolumeUpdateTime > 50) {
+                            notifyVolumeUpdate(level);
+                            lastVolumeUpdateTime = currentTime;
+                        }
+                    }
+
+
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -322,6 +419,8 @@ public class AudioRecordService extends Service {
             mediaPlayer.setOnPreparedListener(mp -> {
                 mp.start();
                 startForeground(1, getNotification("正在播放音频..."));
+                updatePlaybackState(PlaybackState.STATE_PLAYING);
+                updateMetadata(uri);
             });
             mediaPlayer.setOnCompletionListener(mp -> {
                 playnext();
@@ -342,9 +441,8 @@ public class AudioRecordService extends Service {
             // 释放焦点
             abandonFocus();
             stopForeground(true);
-            Intent updateIntent = new Intent("com.example.mediademo.UPDATE_UI");
-            updateIntent.setPackage(getPackageName());
-            sendBroadcast(updateIntent);
+            updatePlaybackState(PlaybackState.STATE_STOPPED);
+            notifyUiUpdate();
         }
     }
 
@@ -365,6 +463,11 @@ public class AudioRecordService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        // 释放MediaSession
+        if (mediaSession != null) {
+            mediaSession.setActive(false);
+            mediaSession.release();
+        }
         // 注销广播接收器
         if (noisyReceiver != null) {
             unregisterReceiver(noisyReceiver);
